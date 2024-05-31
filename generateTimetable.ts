@@ -7,6 +7,7 @@ import {
     mutationRate,
     populationSize
 } from "./config";
+import * as preferences from "./preferences";
 import assert from "node:assert";
 
 const randomChoice = <T>(arr: T[], distribution?: number[]): T => {
@@ -41,11 +42,10 @@ const generateRandomTimetable = (courseSections: CoursesSections): Timetable => 
 const msToHours = (ms: number) => Math.ceil(ms / 3.6e+6);
 
 const calculateFitness = (timetable: Timetable, log: boolean = false): TimetableWithFitness => {
-    const optimalTime = 14;
-    const optimalTimeSD = 3;
-    const maxGap = 1;
-    const maxBackToBack = 3;
-
+    const optimalTime = preferences.optimalTime;
+    const optimalTimeSD = preferences.optimalTimeSD;
+    const maxGap = preferences.maxGap;
+    const maxBackToBack = preferences.maxBackToBack;
 
     const meetingTimes = Object.values(timetable)
         .map(x => [x.lecture.meetingTimes, x.tutorial?.meetingTimes, x.practical?.meetingTimes].filter(x => x !== undefined).flat() as MeetingTime[])
@@ -61,7 +61,6 @@ const calculateFitness = (timetable: Timetable, log: boolean = false): Timetable
         if (a.start.day != b.start.day) return a.start.day - b.start.day;
         return a.start.millisofday - b.start.millisofday;
     });
-    // console.log(meetingTimes)
 
 
     for (let i = 0; i < meetingTimes.length; i++) {
@@ -76,6 +75,11 @@ const calculateFitness = (timetable: Timetable, log: boolean = false): Timetable
             if (delta > optimalTimeSD)
                 optimalTimeScore += delta;
         }
+
+        if (current.start.day == 5) {
+            optimalTimeScore += current.end.millisofday / 3.6e+6;
+        }
+
 
         if (i == meetingTimes.length - 1) continue;
         const next = meetingTimes[i + 1];
@@ -97,11 +101,16 @@ const calculateFitness = (timetable: Timetable, log: boolean = false): Timetable
         }
     }
     if (currentBackToBack > maxBackToBack) totalBackToBack += currentBackToBack - maxBackToBack;
-    let fitness = 1 - (conflictHours * 20
+
+    const lockedSectionCount = Object.values(timetable).reduce((a, x) =>
+        a + [x.lecture, x.practical, x.tutorial].filter(x => x && ["C", "Y"].includes(x.openLimitInd)).length, 0);
+
+    let fitness = 1 - (conflictHours * 20 + lockedSectionCount * 100
         + totalBackToBack * 3 + gapScore + optimalTimeScore * 2
     )
     if (log) {
         console.log(`Conflict hours: ${conflictHours}`)
+        console.log(`Locked section count: ${lockedSectionCount}`)
         console.log(`Total back to back: ${totalBackToBack}`)
         console.log(`Gap score: ${gapScore}`)
         console.log(`Optimal time score: ${optimalTimeScore}`)
@@ -158,6 +167,7 @@ export default (courseSections: CoursesSections): TimetableWithFitness => {
         }
         population = newPopulation;
         console.log(`Generation ${generation} complete. Best fitness: ${population[0].fitness}`);
+        calculateFitness(population[0].timetable, true);
     }
     population.sort((a, b) => b.fitness - a.fitness);
     return population[0];
